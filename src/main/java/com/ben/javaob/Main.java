@@ -23,6 +23,7 @@ public class Main
         Thread reader = new Thread(() -> {
             while(!Thread.currentThread().isInterrupted())
             {
+
                 synchronized(book)
                 {
                     System.out.print("\033[H\033[2J");
@@ -30,8 +31,8 @@ public class Main
                     System.out.printf("%-30s %s%n", "BIDS", "ASKS");
                     System.out.printf("%-30s %s%n", "----", "----");
 
-                    List<Double> bidPrices = new ArrayList<>(book.bids.keySet());
-                    List<Double> askPrices = new ArrayList<>(book.asks.keySet());
+                    List<Long> bidPrices = new ArrayList<Long>(book.bids.keySet());
+                    List<Long> askPrices = new ArrayList<Long>(book.asks.keySet());
                     int rows = Math.max(bidPrices.size(), askPrices.size());
 
                     for (int i = 0; i < rows; i++)
@@ -40,22 +41,29 @@ public class Main
                         String ask = "";
                         if (i < bidPrices.size())
                         {
-                            Double p = bidPrices.get(i);
-                            Double amt = book.bids.get(p).stream().mapToDouble(o -> o.amount).sum();
-                            bid = String.format("%.4f  %.4f", p, amt);
+                            Long p = bidPrices.get(i);
+                            Long amt = book.bids.get(p).stream().mapToLong(o -> o.amount).sum();
+                            if (amt == 0l) continue;
+                            bid = String.format("%.4f  %.4f", p / 10000.0, amt / 10000.0);
                         }
                         if (i < askPrices.size())
                         {
-                            Double p = askPrices.get(i);
-                            Double amt = book.asks.get(p).stream().mapToDouble(o -> o.amount).sum();
-                            ask = String.format("%.4f  %.4f", p, amt);
+                            Long p = askPrices.get(i);
+                            Long amt = book.asks.get(p).stream().mapToLong(o -> o.amount).sum();
+                            if (amt == 0l) continue;
+                            ask = String.format("%.4f  %.4f", p / 10000.0, amt / 10000.0);
                         }
                         System.out.printf("%-30s %s%n", bid, ask);
                     }
 
                     System.out.println("RECEIPTS (last 10)");
-                    book.receipts.stream().skip(Math.max(0, book.receipts.size() - 10)).forEach(System.out::println);
-                    
+                    int start = ((book.pool.index - 10) % 100 + 100) % 100;
+                    for (int y = 0; y < 10; y++)
+                    {
+                        Receipt r = book.pool.pool[start % 100];
+                        if (r.price != null) System.out.println(r);
+                        start++;
+                    }
                 }
                 try { Thread.sleep(500); } catch (InterruptedException e)
                 {
@@ -67,7 +75,7 @@ public class Main
         int count = 0; 
         for (;;)
         {
-            if (count >= 3) 
+            if (count >= 10) 
             {
                 count = 0;
                 try { Thread.sleep(500); } catch (InterruptedException e) { break; }
@@ -82,24 +90,24 @@ public class Main
             {
                 ty = Order.type.SELL;
             }
-            Order ord = new Order(price, amount, ty);
+            Order.Pool pool = new Order.Pool(100);
             synchronized(book)
             {
                 if (function == 1)
                 {
-                    book.Market_order(ord);
+                    book.Market_order(pool.acquire(Math.round(price * 10000l), Math.round(amount * 10000l), ty));
                 }
                 if (function == 2)
                 {
-                    book.IOC(ord);
+                    book.IOC(pool.acquire(Math.round(price * 10000f), Math.round(amount * 10000f), ty));
                 }
                 if (function == 3)
                 {
-                    book.FOK(ord);
+                    book.FOK(pool.acquire(Math.round(price * 10000f), Math.round(amount * 10000f), ty));
                 }
                 if (function == 4)
                 {
-                    book.GOC(ord);
+                    book.GOC(pool.acquire(Math.round(price * 10000f), Math.round(amount * 10000f), ty));
                 }
             }
             count++;

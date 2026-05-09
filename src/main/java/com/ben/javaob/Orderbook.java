@@ -13,20 +13,19 @@ import com.ben.javaob.Receipt;
 
 public class Orderbook
 {
-    TreeMap</*Price*/Double, /*Order object*/ArrayList<Order>> bids;
-    TreeMap<Double, ArrayList<Order>> asks;
-    ArrayDeque<Receipt> receipts;
-    private TreeMap<Double, Double> askLiqudity;
-    private TreeMap<Double, Double> bidLiqudity;
+    TreeMap</*Price*/Long, /*Order object*/ArrayList<Order>> bids;
+    TreeMap<Long, ArrayList<Order>> asks;
+    private TreeMap<Long, Long> askLiqudity;
+    private TreeMap<Long, Long> bidLiqudity;
+    Receipt.Pool pool; 
 
     public Orderbook()
     {
         bids = new TreeMap<>(Collections.reverseOrder());
         asks = new TreeMap<>();
-        receipts = new ArrayDeque<>();
-
         askLiqudity = new TreeMap<>();
         bidLiqudity = new TreeMap<>();
+        pool = new Receipt.Pool(100);
     }
 
     /**
@@ -35,35 +34,30 @@ public class Orderbook
     public int match(Order ord)
     {
 
-        Double remaining = ord.amount;
-        List<Double> asksToRemove = new ArrayList<>();
-        List<Double> bidsToRemove = new ArrayList<>();
         if (ord._type == type.BUY)
         {
-            for (Double price : asks.keySet()) 
+            // This sucks due to unboxing but i would have to move away from treemap
+            for (long price : asks.keySet()) 
             {
-
                 if (ord.price == 0) ord.price = price;
                 if (price > ord.price ) break;
                 ArrayList<Order> list = asks.get(price);
-                if (list.isEmpty()) asksToRemove.add(price);
-                while (remaining > 0 && !list.isEmpty())
+                while (ord.amount > 0 && !list.isEmpty())
                 {
                     Order ask = list.getFirst();
-                    Double am = ask.amount;
-                    if (am - remaining < 0.0)
+                    if (ask.amount - ord.amount < 0l)
                     {
                         list.removeFirst();
-                        receipts.add(new Receipt(ask.id, ord.id, ask.price, ask.amount, Instant.now().toEpochMilli()));
-                        remaining -= am;
-                        askLiqudity.merge(ask.price, -am, Double::sum);
+                        pool.acquire(ask.id, ord.id, ask.price, ask.amount, System.nanoTime());
+                        ord.amount -= ask.amount;
+                        askLiqudity.merge(ask.price, -ask.amount, Long::sum);
                     }
                     else
                     {
-                        ask.amount -= remaining;
-                        receipts.add(new Receipt(ask.id, ord.id, ask.price, remaining, Instant.now().toEpochMilli()));
-                        askLiqudity.merge(ask.price, -remaining, Double::sum);
-                        remaining = 0.0;
+                        ask.amount -= ord.amount;
+                        pool.acquire(ask.id, ord.id, ask.price, ord.amount, System.nanoTime());
+                        askLiqudity.merge(ask.price, -ord.amount, Long::sum);
+                        ord.amount = 0l;
                     }
                 }
 
@@ -71,38 +65,33 @@ public class Orderbook
         }
         if (ord._type == type.SELL)
         {
-            for (Double price : bids.keySet()) 
+            for (long price : bids.keySet()) 
             {
                 if (ord.price == 0) ord.price = price;
                 if (price < ord.price) break;
                 ArrayList<Order> list = bids.get(price);
-                if (list.isEmpty()) bidsToRemove.add(price);
-                while (remaining > 0 && !list.isEmpty())
+                while (ord.amount > 0 && !list.isEmpty())
                 {
                     Order bid = list.getFirst();
-                    Double bm = bid.amount;
-                    if (bm - remaining < 0.0)
+                    if (bid.amount - ord.amount < 0.0)
                     {
                         list.removeFirst();
-                        receipts.add(new Receipt(ord.id, bid.id, bid.price, bid.amount, Instant.now().toEpochMilli()));
-                        remaining -= bm;
-                        bidLiqudity.merge(bid.price, -bm, Double::sum);
+                        pool.acquire(ord.id, bid.id, bid.price, bid.amount, System.nanoTime());
+                        ord.amount -= bid.amount;
+                        bidLiqudity.merge(bid.price, -bid.amount, Long::sum);
                     }
                     else
                     {
-                        bid.amount -= remaining;
-                        receipts.add(new Receipt(ord.id, bid.id, bid.price, remaining, Instant.now().toEpochMilli()));
-                        bidLiqudity.merge(bid.price, -remaining, Double::sum);
-                        remaining = 0.0;
+                        bid.amount -= ord.amount;
+                        pool.acquire(ord.id, bid.id, bid.price, ord.amount, System.nanoTime());
+                        bidLiqudity.merge(bid.price, -ord.amount, Long::sum);
+                        ord.amount = 0l;
                     }
                 }
             }
         }
 
-        bidsToRemove.forEach(bids::remove);
-        asksToRemove.forEach(asks::remove);
-        ord.amount = remaining;
-        return remaining > 0 ? -2 : 0;
+        return ord.amount > 0 ? -2 : 0;
     }
 
     public int IOC(Order ord)
@@ -112,7 +101,7 @@ public class Orderbook
 
     public int Market_order(Order ord)
     {
-        ord.price = 0.0;
+        ord.price = 0l;
         return match(ord);
     }
 
@@ -120,8 +109,9 @@ public class Orderbook
     {
         if(ord._type == type.BUY)
         {
-            Double total = 0.0;
-            for (Double price : askLiqudity.keySet()) 
+            long total = 0;
+            // Unboxing again.
+            for (long price : askLiqudity.keySet()) 
             {
                 if (price > ord.price) break;
                 total += askLiqudity.get(price);
@@ -133,11 +123,11 @@ public class Orderbook
         }
         if(ord._type == type.SELL)
         {
-            Double total = 0.0;
-            for (Double price : bidLiqudity.keySet()) 
+            long total = 0;
+            for (long price : bidLiqudity.keySet()) 
             {
                 if (price < ord.price) break;
-                total = bidLiqudity.get(price);
+                total += bidLiqudity.get(price);
                 if(total >= ord.amount)
                 {
                     return match(ord);
@@ -154,6 +144,7 @@ public class Orderbook
         {
             if(ord._type == type.BUY)
             {
+                // Only allocates if missing, Needs warming up before production due to needing to allocate price levels.
                 bids.computeIfAbsent(ord.price, k -> new ArrayList<Order>()).add(ord);
                 return -2;
             }
@@ -171,12 +162,12 @@ public class Orderbook
         if(ord._type == type.BUY)
         {
             bids.get(ord.price).remove(ord);
-            bidLiqudity.merge(ord.price, ord.amount, Double::sum);
+            bidLiqudity.merge(ord.price, ord.amount, Long::sum);
         }
         if(ord._type == type.SELL)
         {
             asks.get(ord.price).remove(ord);
-            askLiqudity.merge(ord.price, ord.amount, Double::sum);
+            askLiqudity.merge(ord.price, ord.amount, Long::sum);
         }
     }
 
@@ -185,6 +176,4 @@ public class Orderbook
         Cancel(ord);
         Market_order(replacement);
     }
-
-
 }
