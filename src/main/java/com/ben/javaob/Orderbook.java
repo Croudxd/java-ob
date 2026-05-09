@@ -36,8 +36,7 @@ public class Orderbook
 
         if (ord._type == type.BUY)
         {
-            // This sucks due to unboxing but i would have to move away from treemap
-            for (long price : asks.keySet()) 
+            for (Long price : asks.keySet()) 
             {
                 if (ord.price == 0) ord.price = price;
                 if (price > ord.price ) break;
@@ -110,8 +109,7 @@ public class Orderbook
         if(ord._type == type.BUY)
         {
             long total = 0;
-            // Unboxing again.
-            for (long price : askLiqudity.keySet()) 
+            for (Long price : askLiqudity.keySet()) 
             {
                 if (price > ord.price) break;
                 total += askLiqudity.get(price);
