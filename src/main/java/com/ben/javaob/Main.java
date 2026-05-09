@@ -73,6 +73,8 @@ public class Main
         });
         reader.start();
         int count = 0; 
+
+        Order.Pool pool = new Order.Pool(100);
         for (;;)
         {
             if (count >= 10) 
@@ -90,7 +92,6 @@ public class Main
             {
                 ty = Order.type.SELL;
             }
-            Order.Pool pool = new Order.Pool(100);
             synchronized(book)
             {
                 if (function == 1)

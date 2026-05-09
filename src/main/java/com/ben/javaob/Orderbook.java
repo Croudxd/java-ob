@@ -146,34 +146,39 @@ public class Orderbook
             {
                 // Only allocates if missing, Needs warming up before production due to needing to allocate price levels.
                 bids.computeIfAbsent(ord.price, k -> new ArrayList<Order>()).add(ord);
+                bidLiqudity.merge(ord.price, ord.amount, Long::sum);
                 return -2;
             }
             if(ord._type == type.SELL)
             {
                 asks.computeIfAbsent(ord.price, k -> new ArrayList<Order>()).add(ord);
+                askLiqudity.merge(ord.price, ord.amount, Long::sum);
                 return -2;
             }
         }
         return 0;
     }
 
-    public void Cancel(Order ord)
+    public int Cancel(Order ord)
     {
         if(ord._type == type.BUY)
         {
             bids.get(ord.price).remove(ord);
-            bidLiqudity.merge(ord.price, ord.amount, Long::sum);
+            bidLiqudity.merge(ord.price, -ord.amount, Long::sum);
+            return 0;
         }
         if(ord._type == type.SELL)
         {
             asks.get(ord.price).remove(ord);
-            askLiqudity.merge(ord.price, ord.amount, Long::sum);
+            askLiqudity.merge(ord.price, -ord.amount, Long::sum);
+            return 0;
         }
+        return -2;
     }
 
     public void Replace(Order ord, Order replacement)
     {
         Cancel(ord);
-        Market_order(replacement);
+        GOC(replacement);
     }
 }
