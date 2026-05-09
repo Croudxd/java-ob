@@ -12,3 +12,16 @@ compile/running
 ```
 mvn compile exec:java -Dexec.mainClass="com.ben.javaob.Main"
 ```
+benchmark
+```
+mvn compile exec:java -Dexec.mainClass="com.ben.javaob.Benchmark"
+```
+test
+```
+mvn test
+```
+speed
+```
+goc:6.319227 uqs
+FOK:8.541939000000001 uqs
+```
